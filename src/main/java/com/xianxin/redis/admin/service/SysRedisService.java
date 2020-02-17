@@ -3,10 +3,7 @@ package com.xianxin.redis.admin.service;
 import com.xianxin.redis.admin.bean.dto.SysRedisDto;
 import com.xianxin.redis.admin.bean.po.RedisConfig;
 import com.xianxin.redis.admin.bean.po.SysRedis;
-import com.xianxin.redis.admin.bean.vo.CacheRedisQueryVo;
-import com.xianxin.redis.admin.bean.vo.CacheRedisVo;
-import com.xianxin.redis.admin.bean.vo.SysRedisCreateVo;
-import com.xianxin.redis.admin.bean.vo.SysRedisUpdateVo;
+import com.xianxin.redis.admin.bean.vo.*;
 import com.xianxin.redis.admin.framework.common.Response;
 
 import java.util.List;
@@ -52,4 +49,8 @@ public interface SysRedisService {
     Response delete(String host);
 
     Response selectDb(String host);
+
+    Response cachSynch(CacheSynchVo vo);
+
+    Response cachPublish(CachPublishVo vo);
 }

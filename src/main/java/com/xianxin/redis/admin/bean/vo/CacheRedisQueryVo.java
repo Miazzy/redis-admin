@@ -18,6 +18,9 @@ public class CacheRedisQueryVo implements Serializable {
 
     private String cacheKeyword;
 
+    /**
+     * 数据类型
+     */
     private String type;
 
     private String db;
@@ -26,5 +29,8 @@ public class CacheRedisQueryVo implements Serializable {
 
     private int pageNo = 1;
 
-    private int pageSize = 10;
+    /**
+     * 默认100条分页
+     */
+    private int pageSize = 100;
 }

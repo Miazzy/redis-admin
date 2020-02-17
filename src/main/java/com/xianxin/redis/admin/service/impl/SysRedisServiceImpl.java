@@ -3,10 +3,7 @@ package com.xianxin.redis.admin.service.impl;
 import com.xianxin.redis.admin.bean.dto.SysRedisDto;
 import com.xianxin.redis.admin.bean.po.RedisConfig;
 import com.xianxin.redis.admin.bean.po.SysRedis;
-import com.xianxin.redis.admin.bean.vo.CacheRedisQueryVo;
-import com.xianxin.redis.admin.bean.vo.CacheRedisVo;
-import com.xianxin.redis.admin.bean.vo.SysRedisCreateVo;
-import com.xianxin.redis.admin.bean.vo.SysRedisUpdateVo;
+import com.xianxin.redis.admin.bean.vo.*;
 import com.xianxin.redis.admin.framework.common.Response;
 import com.xianxin.redis.admin.framework.config.SysConfig;
 import com.xianxin.redis.admin.framework.utils.DateUtils;
@@ -14,6 +11,7 @@ import com.xianxin.redis.admin.service.SysRedisService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import redis.clients.jedis.Jedis;
@@ -22,6 +20,7 @@ import redis.clients.jedis.ScanParams;
 import redis.clients.jedis.ScanResult;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * @author 贤心i
@@ -152,7 +151,7 @@ public class SysRedisServiceImpl implements SysRedisService {
             ScanResult<String> scanResult = jedis.scan(scanRet, scanParams);
             scanRet = scanResult.getCursor();
             //scan 487439 MATCH * COUNT 10000
-            log.info("scan {} MATCH {} COUNT {}", scanRet, match, count);
+            log.info("scan {} MATCH {} COUNT {}", scanRet, vo.getKeyword(), count);
 
             keyList.addAll(scanResult.getResult());
         } while (!"0".equals(scanRet));
@@ -300,15 +299,18 @@ public class SysRedisServiceImpl implements SysRedisService {
             dto.setValues(values);
         }
 
-
         dto.setDataType(type);
         dto.setExpireStr(expireStr);
-//        dto.setExpire(expire + "");
+
+        // 过期时间 数值类型
+        dto.setExpire(expire.toString());
+
         dto.setElCount(elCount);
         dto.setRedisKey(key);
         dto.setOldRedisKey(key);
         jedis.close();
-        return Response.success(dto);
+        int count = elCount != null ? Integer.parseInt(elCount.toString()) : 0;
+        return Response.success(count, dto);
     }
 
     @Override
@@ -403,13 +405,17 @@ public class SysRedisServiceImpl implements SysRedisService {
                 }
 
             } else if ("set".equals(type)) {
+                long elCount = jedis.scard(vo.getRedisKey());
                 if (StringUtils.isNotBlank(vo.getRedisValue())) {
                     jedis.srem(vo.getRedisKey(), vo.getRedisValue());
                     log.info("set - 单个 {} 从 {} 中移除", vo.getRedisValue(), vo.getRedisKey());
                 } else {
-                    // 删除全部
-                    jedis.spop(vo.getRedisKey());
-                    log.info("set - 移除全部");
+                    for (long i = 0; i < elCount; i++) {
+                        // 删除全部
+                        jedis.spop(vo.getRedisKey());
+                        log.info("set - 移除 {} - 计数：{}", vo.getRedisKey(), (i + 1));
+                    }
+                    log.info("set - 移除全部完成");
                 }
                 count = 1;
             } else if ("zset".equals(type)) {
@@ -607,6 +613,120 @@ public class SysRedisServiceImpl implements SysRedisService {
         jedis.close();
         // ERR DB index is out of range ：ERR数据库索引超出范围
         return Response.error("ERR数据库索引超出范围");
+    }
+
+    @Override
+    public Response cachSynch(CacheSynchVo vo) {
+
+        // 查询 源缓存的详情
+        CacheRedisQueryVo cacheRedisQueryVo = new CacheRedisQueryVo();
+        BeanUtils.copyProperties(vo, cacheRedisQueryVo);
+        Response<SysRedisDto> redisDtoResponse = cacheDetails(cacheRedisQueryVo);
+
+        if (redisDtoResponse.getCode() == HttpStatus.OK.value()) {
+            SysRedisDto sysRedisDto = redisDtoResponse.getData();
+            String type = sysRedisDto.getDataType();
+            // 创建 目标缓存
+            CacheRedisVo cacheRedisVo = new CacheRedisVo();
+            cacheRedisVo.setHost(vo.getTargetHost());
+            cacheRedisVo.setDb(vo.getTargetDb());
+            cacheRedisVo.setDataType(type);
+
+            int expire = StringUtils.isNotBlank(sysRedisDto.getExpire()) ? Integer.parseInt(sysRedisDto.getExpire()) : -1;
+            cacheRedisVo.setExpire(expire);
+
+            cacheRedisVo.setRedisKey(sysRedisDto.getRedisKey());
+
+            if ("string".equals(type)) {
+                cacheRedisVo.setRedisValue(sysRedisDto.getRedisValue());
+
+                Response cacheCreateString = cacheCreate(cacheRedisVo);
+                String msg = cacheCreateString.getCode() == HttpStatus.OK.value() ? "同步成功" : "同步失败";
+                log.info("string - {} {}", sysRedisDto.getRedisKey(), msg);
+                cacheCreateString.setMsg(msg);
+
+                return cacheCreateString;
+            } else {
+
+                return assemblyCachSynch(redisDtoResponse, cacheRedisVo, vo, cacheRedisQueryVo);
+            }
+
+        } else {
+
+            return redisDtoResponse;
+        }
+    }
+
+    @Override
+    public Response cachPublish(CachPublishVo vo) {
+
+        Jedis jedis = SysConfig.getJedis(vo.getHost(), vo.getDb());
+
+        jedis.publish(vo.getChannel(),vo.getMessage());
+
+
+        return null;
+    }
+
+    private Response assemblyCachSynch(Response<SysRedisDto> redisDtoResponse, CacheRedisVo cacheRedisVo, CacheSynchVo vo, CacheRedisQueryVo cacheRedisQueryVo) {
+        SysRedisDto sysRedisDto = redisDtoResponse.getData();
+
+        List<Map<String, Object>> values = sysRedisDto.getValues();
+
+        String type = sysRedisDto.getDataType();
+
+        if (values != null && values.size() > 0) {
+            // 循环存储缓存
+            AtomicReference<Response> responseAtomicReference = new AtomicReference<>();
+            values.forEach(val -> {
+
+                if ("list".equals(type) || "set".equals(type)) {
+
+                    Object svalue = val.get("svalue");
+                    cacheRedisVo.setRedisValue(svalue.toString());
+
+                } else if ("hash".equals(type)) {
+
+                    Object hkey = val.get("hkey");
+                    Object hvalue = val.get("hvalue");
+                    cacheRedisVo.setRedisHKey(hkey.toString());
+                    cacheRedisVo.setRedisValue(hvalue.toString());
+
+                } else if ("zset".equals(type)) {
+                    Object zvalue = val.get("zvalue");
+                    Object zscore = val.get("zscore");
+
+                    cacheRedisVo.setScore(Double.parseDouble(zscore.toString()));
+                    cacheRedisVo.setRedisValue(zvalue.toString());
+                }
+
+
+                responseAtomicReference.set(cacheCreate(cacheRedisVo));
+                String msg = responseAtomicReference.get().getCode() == HttpStatus.OK.value() ? "同步成功" : "同步失败";
+                log.info("{} - {} {}", type, sysRedisDto.getRedisKey(), msg);
+
+            });
+
+            if (responseAtomicReference.get().getCode() == HttpStatus.OK.value()) {
+                int pageCount = (redisDtoResponse.getCount() + cacheRedisQueryVo.getPageSize() - 1) / cacheRedisQueryVo.getPageSize();
+                int nextPage = cacheRedisQueryVo.getPageNo() + 1;
+
+                log.info("{} - 总条数：{}，总页数：{}，当前页：{}，下一页：{}", type, redisDtoResponse.getCount(), pageCount, cacheRedisQueryVo.getPageNo(), nextPage);
+                boolean isNextPage = nextPage <= pageCount;
+                log.info("是否自动查询下一页数据：{}", isNextPage);
+                if (isNextPage) {
+                    vo.setPageNo(nextPage);
+                    cachSynch(vo);
+                }
+            }
+
+            Response response = responseAtomicReference.get();
+            String msg = responseAtomicReference.get().getCode() == HttpStatus.OK.value() ? "同步成功" : "同步失败";
+            log.info("{} - {}", type, msg);
+            response.setMsg(msg);
+            return response;
+        }
+        return Response.error("同步失败");
     }
 
     private SysRedis baseInfo(String key, Jedis jedis) {

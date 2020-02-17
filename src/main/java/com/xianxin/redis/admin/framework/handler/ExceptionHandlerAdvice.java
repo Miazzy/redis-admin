@@ -61,8 +61,14 @@ public class ExceptionHandlerAdvice {
             if (e.getMessage().equalsIgnoreCase("value sent to redis cannot be null")) {
                 return Response.error("Redis存储失败,值不能为空");
             }
-            if(e.getMessage().equalsIgnoreCase("NOAUTH Authentication required.")){
+            if (e.getMessage().equalsIgnoreCase("NOAUTH Authentication required.")) {
                 return Response.error("需要密码认证");
+            }
+            if (e.getMessage().equalsIgnoreCase("WRONGTYPE Operation against a key holding the wrong kind of value")) {
+                return Response.error("键的数据类型错误");
+            }
+            if (e.getMessage().equalsIgnoreCase("ERR DB index is out of range")) {
+                return Response.error("ERR数据库索引超出范围");
             }
             return Response.error("无效的密码");
         }

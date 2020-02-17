@@ -13,7 +13,13 @@ import java.io.Serializable;
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class BaseVo implements Serializable {
+    /**
+     * 主机
+     */
     private String host;
-    private String db;
 
+    /**
+     * db
+     */
+    private String db;
 }

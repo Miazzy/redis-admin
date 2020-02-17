@@ -3,10 +3,7 @@ package com.xianxin.redis.admin.controller;
 import com.xianxin.redis.admin.bean.dto.SysRedisDto;
 import com.xianxin.redis.admin.bean.po.RedisConfig;
 import com.xianxin.redis.admin.bean.po.SysRedis;
-import com.xianxin.redis.admin.bean.vo.CacheRedisVo;
-import com.xianxin.redis.admin.bean.vo.CacheRedisQueryVo;
-import com.xianxin.redis.admin.bean.vo.SysRedisCreateVo;
-import com.xianxin.redis.admin.bean.vo.SysRedisUpdateVo;
+import com.xianxin.redis.admin.bean.vo.*;
 import com.xianxin.redis.admin.framework.annotation.LogAnnotation;
 import com.xianxin.redis.admin.framework.common.Response;
 import com.xianxin.redis.admin.framework.config.SysConfig;
@@ -48,6 +45,20 @@ public class RedisController extends BaseController {
     public Response<SysRedisDto> queryCacheDetails(@RequestBody CacheRedisQueryVo vo) {
 
         return sysRedisService.cacheDetails(vo);
+    }
+
+    @LogAnnotation(module = "缓存", business = "同步")
+    @PostMapping(path = "/cache/synch")
+    public Response cachSynch(@RequestBody CacheSynchVo vo) {
+
+        return sysRedisService.cachSynch(vo);
+    }
+
+    @LogAnnotation(module = "缓存", business = "发布")
+    @PostMapping(path = "/cache/publish")
+    public Response cachPublish(@RequestBody CachPublishVo vo) {
+
+        return sysRedisService.cachPublish(vo);
     }
 
     @LogAnnotation(module = "缓存", business = "创建缓存")
